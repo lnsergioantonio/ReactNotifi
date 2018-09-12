@@ -7,11 +7,11 @@
  */
 
 import React, {Component} from 'react';
-import {StyleSheet, View, TouchableOpacity, Image, FlatList} from 'react-native';
+import {StyleSheet} from 'react-native';
 import { Container, Header, Title, Content, Button, Left, Right, Body, Icon, Text, List, ListItem, Thumbnail } from 'native-base';
 import * as firebase from 'firebase'
 import 'firebase/firestore';
-import { GoogleSignin, GoogleSigninButton, statusCodes } from 'react-native-google-signin';
+import { GoogleSignin, statusCodes } from 'react-native-google-signin';
 
 export default class App extends Component{
     constructor(props){
@@ -19,6 +19,7 @@ export default class App extends Component{
         this.state = {
             name:"",
             photo:"",
+            isLoginScreenPresented:false,
             dataSource:[]
         }
     }
@@ -34,8 +35,6 @@ export default class App extends Component{
         };
         firebase.initializeApp(config);
         firebase.firestore().settings({	timestampsInSnapshots: true})
-    }
-    onPress = async () => {
         GoogleSignin.configure({
             iosClientId: "395799782093-32k7ocgs3im3e0d7d235sj625jmgu55h.apps.googleusercontent.com",
             offlineAccess: false, // if you want to access Google API on behalf of the user FROM YOUR SERVER
@@ -44,26 +43,23 @@ export default class App extends Component{
             //scopes:['https://www.googleapis.com/auth/plus.me']
         });
         
+    }
+    async componentDidMount(){
+        const isSignedIn = await GoogleSignin.isSignedIn();
+        this.setState({ isLoginScreenPresented: isSignedIn });
+        this.observerUsers()
+    }
+    async signIn(){
         try {
             await GoogleSignin.hasPlayServices();
             const response = await GoogleSignin.signIn();
             const userInfo = response.user
-            console.log(userInfo);
-            this.setState({
-                    name:userInfo.name,
-                    photo:userInfo.photo,
-                    dataSource:[
-                        ...this.state.dataSource, {
-                            id:userInfo.id,
-                            email:userInfo.email,
-                            familyName:userInfo.familyName,
-                            givenName:userInfo.givenName,
-                            id:userInfo.id,
-                            name:userInfo.name,
-                            photo:userInfo.photo
-                        }
-                    ]
-                 })
+            // Build Firebase credential with the Google ID token.
+            var credential = await  firebase.auth.GoogleAuthProvider.credential(response.idToken, response.accessToken);
+            // Sign in with credential from the Google user.
+            var user = await firebase.auth().signInAndRetrieveDataWithCredential(credential);
+            this.setState({isLoginScreenPresented: true})
+            this.observerUsers()
             // Add a new document in collection "users"
             firebase.firestore().collection("users").doc(userInfo.id).set({
                 email:userInfo.email,
@@ -80,7 +76,6 @@ export default class App extends Component{
                 console.error("Error writing document: ", error);
             });
         } catch (error) {
-            console.log(error);
             if (error.code === statusCodes.SIGN_IN_CANCELLED) {
                 // user cancelled the login flow
             } else if (error.code === statusCodes.IN_PROGRESS) {
@@ -92,7 +87,35 @@ export default class App extends Component{
             }
         }
     }
+    async signOut(){
+        try {
+            await GoogleSignin.revokeAccess();
+            await GoogleSignin.signOut();
+            await firebase.auth().signOut();
+        } catch (error) {
+            console.error(error);
+        }
+    };
+    observerUsers(){
+        const context = this
+        if(this.state.isLoginScreenPresented)
+            firebase.firestore().collection("users")
+                .onSnapshot(function(querySnapshot) {
+                    const users = []
+                    querySnapshot.forEach(function(doc) {
+                        users.push({
+                            email:doc.data().email,
+                            familyName:doc.data().familyName,
+                            givenName:doc.data().givenName,
+                            id:doc.data().id,
+                            name:doc.data().name,
+                            photo:doc.data().photo})
+                    });
+                    context.setState({dataSource:users})
+                });
+    }
     render() {
+        
         return (
             <Container>
                 <Header>
@@ -111,9 +134,12 @@ export default class App extends Component{
                     <Text style={styles.instructions}>1.- Se hace un login con Gmail, Facebook o Twitter</Text>
                     <Text style={styles.instructions}>2.- Al recibir el login se guarda los datos en Firestore</Text>
                     <Text style={styles.instructions}>3.- Si estas logeado recibes una notifiación de que alguien inicio sesión</Text>
-                    <TouchableOpacity style={styles.button} onPress={this.onPress} >
-                        <Text> Iniciar con Gmail </Text>
-                    </TouchableOpacity>
+                    {
+                        !this.state.isLoginScreenPresented ?
+                            <Button onPress={this.signIn.bind(this)} light><Text>Iniciar con Gmail </Text></Button>
+                        :
+                            <Button onPress={this.signOut.bind(this)} light><Text>Salir</Text></Button>
+                    }
                     {
                         this.state.dataSource.length > 0 &&
                             <List
@@ -143,20 +169,8 @@ export default class App extends Component{
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        marginTop:20,
-        // justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: '#F5FCFF',
-    },
-    button: {
-        alignItems: 'center',
-        backgroundColor: '#DDDDDD',
-        padding: 10
-    },
     welcome: {
-        fontSize: 20,
+        fontSize: 18,
         textAlign: 'center',
         margin: 10,
     },
@@ -164,16 +178,5 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         color: '#333333',
         marginBottom: 5,
-    },
-    list: {
-        flexDirection: 'row',
-        flexWrap: 'wrap'
-        },
-    item: {
-        backgroundColor: 'red',
-        color:"black",
-        height:30,
-        margin: 3,
-        width: 100
     }
 });
