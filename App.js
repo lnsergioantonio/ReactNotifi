@@ -13,12 +13,12 @@ import * as firebase from 'firebase'
 import 'firebase/firestore';
 import { GoogleSignin, statusCodes } from 'react-native-google-signin';
 
+var unsubscribe
 export default class App extends Component{
     constructor(props){
         super(props)
         this.state = {
-            name:"",
-            photo:"",
+            id:"",
             isLoginScreenPresented:false,
             dataSource:[]
         }
@@ -45,7 +45,7 @@ export default class App extends Component{
         
     }
     async componentDidMount(){
-        const isSignedIn = await GoogleSignin.isSignedIn();
+        const isSignedIn = await GoogleSignin.isSignedIn();        
         this.setState({ isLoginScreenPresented: isSignedIn });
         this.observerUsers()
     }
@@ -57,15 +57,18 @@ export default class App extends Component{
             // Build Firebase credential with the Google ID token.
             var credential = await  firebase.auth.GoogleAuthProvider.credential(response.idToken, response.accessToken);
             // Sign in with credential from the Google user.
-            var user = await firebase.auth().signInAndRetrieveDataWithCredential(credential);
-            this.setState({isLoginScreenPresented: true})
+            var dataUser = await firebase.auth().signInAndRetrieveDataWithCredential(credential);
+            console.log(dataUser);
+            
+            this.setState({isLoginScreenPresented: true, id:dataUser.user.uid})
             this.observerUsers()
+            
             // Add a new document in collection "users"
-            firebase.firestore().collection("users").doc(userInfo.id).set({
+            firebase.firestore().collection("users").doc(dataUser.user.uid).set({
                 email:userInfo.email,
                 familyName:userInfo.familyName,
                 givenName:userInfo.givenName,
-                id:userInfo.id,
+                id:dataUser.user.uid,
                 name:userInfo.name,
                 photo:userInfo.photo
             })
@@ -91,7 +94,10 @@ export default class App extends Component{
         try {
             await GoogleSignin.revokeAccess();
             await GoogleSignin.signOut();
+            await firebase.firestore().collection("users").doc(this.state.id).delete()            
             await firebase.auth().signOut();
+            unsubscribe()
+            this.setState({isLoginScreenPresented:false,dataSource:[]})
         } catch (error) {
             console.error(error);
         }
@@ -99,7 +105,7 @@ export default class App extends Component{
     observerUsers(){
         const context = this
         if(this.state.isLoginScreenPresented)
-            firebase.firestore().collection("users")
+            unsubscribe = firebase.firestore().collection("users")
                 .onSnapshot(function(querySnapshot) {
                     const users = []
                     querySnapshot.forEach(function(doc) {
