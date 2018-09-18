@@ -7,11 +7,12 @@
  */
 
 import React, {Component} from 'react';
-import {StyleSheet} from 'react-native';
+import {StyleSheet, PushNotificationIOS, Alert, TouchableOpacity, View, TextInput} from 'react-native';
 import { Container, Header, Title, Content, Button, Left, Right, Body, Icon, Text, List, ListItem, Thumbnail } from 'native-base';
 import * as firebase from 'firebase'
 import 'firebase/firestore';
 import { GoogleSignin, statusCodes } from 'react-native-google-signin';
+import NotifService from './NotifService';
 
 var unsubscribe
 export default class App extends Component{
@@ -20,8 +21,10 @@ export default class App extends Component{
         this.state = {
             id:"",
             isLoginScreenPresented:false,
-            dataSource:[]
+            dataSource:[],
+            registerToken: "", gcmRegistered: false
         }
+        this.notif = new NotifService(this.onRegister.bind(this), this.onNotif.bind(this));
     }
     componentWillMount(){
         // Initialize Firebase
@@ -33,21 +36,87 @@ export default class App extends Component{
             storageBucket: "testing-56b3a.appspot.com",
             messagingSenderId: "395799782093"
         };
-        firebase.initializeApp(config);
-        firebase.firestore().settings({	timestampsInSnapshots: true})
-        GoogleSignin.configure({
-            iosClientId: "395799782093-32k7ocgs3im3e0d7d235sj625jmgu55h.apps.googleusercontent.com",
-            offlineAccess: false, // if you want to access Google API on behalf of the user FROM YOUR SERVER
-            forceConsentPrompt: true, // [Android] if you want to show the authorization prompt at each login
-            accountName: '', // [Android] specifies an account name on the device that should be used
-            //scopes:['https://www.googleapis.com/auth/plus.me']
-        });
-        
+        if (!firebase.apps.length) {
+            firebase.initializeApp(config);
+            firebase.firestore().settings({	timestampsInSnapshots: true})
+            GoogleSignin.configure({
+                iosClientId: "395799782093-32k7ocgs3im3e0d7d235sj625jmgu55h.apps.googleusercontent.com",
+                offlineAccess: false, // if you want to access Google API on behalf of the user FROM YOUR SERVER
+                forceConsentPrompt: true, // [Android] if you want to show the authorization prompt at each login
+                accountName: '', // [Android] specifies an account name on the device that should be used
+                //scopes:['https://www.googleapis.com/auth/plus.me']
+            });
+            console.log("config firebase");
+        }        
     }
     async componentDidMount(){
         const isSignedIn = await GoogleSignin.isSignedIn();        
         this.setState({ isLoginScreenPresented: isSignedIn });
         this.observerUsers()
+    }
+    render() {
+        return (
+            <Container>
+                <Header>
+                <Left>
+                    <Button transparent>
+                    <Icon name='menu' />
+                    </Button>
+                </Left>
+                <Body>
+                    <Title>Header</Title>
+                </Body>
+                <Right />
+                </Header>
+                <Content>
+                    <Text style={styles.welcome}>Este es un ejemplo de envio de datos a Cloud firestore y Notifiaciones push!</Text>
+                    <Text style={styles.instructions}>1.- Se hace un login con Gmail, Facebook o Twitter</Text>
+                    <Text style={styles.instructions}>2.- Al recibir el login se guarda los datos en Firestore</Text>
+                    <Text style={styles.instructions}>3.- Si estas logeado recibes una notifiación de que alguien inicio sesión</Text>
+
+                    <TouchableOpacity style={styles.button} onPress={() => { this.notif.localNotif() }}><Text>Local Notification (now)</Text></TouchableOpacity>
+                    <TouchableOpacity style={styles.button} onPress={() => { this.notif.scheduleNotif() }}><Text>Schedule Notification in 30s</Text></TouchableOpacity>
+                    <TouchableOpacity style={styles.button} onPress={() => { this.notif.cancelNotif() }}><Text>Cancel last notification (if any)</Text></TouchableOpacity>
+                    <TouchableOpacity style={styles.button} onPress={() => { this.notif.cancelAll() }}><Text>Cancel all notifications</Text></TouchableOpacity>
+                    <TouchableOpacity style={styles.button} onPress={() => { this.notif.checkPermission(this.handlePerm.bind(this)) }}><Text>Check Permission</Text></TouchableOpacity>
+
+                    <View style={styles.spacer}></View>
+                            <TextInput style={styles.textField} value={this.state.senderId} onChangeText={(e) => {this.setState({ senderId: e })}} placeholder="GCM ID" />
+                            <TouchableOpacity style={styles.button} onPress={() => { this.notif.configure(this.onRegister.bind(this), this.onNotif.bind(this), this.state.senderId) }}><Text>Configure Sender ID</Text></TouchableOpacity>
+                            {this.state.gcmRegistered && <Text>GCM Configured !</Text>}
+
+                    <View style={styles.spacer}></View>
+                    {
+                        !this.state.isLoginScreenPresented ?
+                            <Button onPress={this.signIn.bind(this)} light><Text>Iniciar con Gmail </Text></Button>
+                        :
+                            <Button onPress={this.signOut.bind(this)} light><Text>Salir</Text></Button>
+                    }
+                    {
+                        this.state.dataSource.length > 0 &&
+                            <List
+                                dataArray={this.state.dataSource}
+                                renderRow={(item) => {
+                                    return(
+                                        <ListItem avatar>
+                                            <Left>
+                                                <Thumbnail small source={{ uri: item.photo }} />
+                                            </Left>
+                                            <Body>
+                                                <Text>{item.name}</Text>
+                                                <Text note>{item.email}</Text>
+                                            </Body>
+                                            <Right>
+                                                <Text note></Text>
+                                            </Right>
+                                        </ListItem>
+                                    )
+                                }}
+                                />
+                    }
+                </Content>
+            </Container>
+        );
     }
     async signIn(){
         try {
@@ -120,57 +189,18 @@ export default class App extends Component{
                     context.setState({dataSource:users})
                 });
     }
-    render() {
-        
-        return (
-            <Container>
-                <Header>
-                <Left>
-                    <Button transparent>
-                    <Icon name='menu' />
-                    </Button>
-                </Left>
-                <Body>
-                    <Title>Header</Title>
-                </Body>
-                <Right />
-                </Header>
-                <Content>
-                    <Text style={styles.welcome}>Este es un ejemplo de envio de datos a Cloud firestore y Notifiaciones push!</Text>
-                    <Text style={styles.instructions}>1.- Se hace un login con Gmail, Facebook o Twitter</Text>
-                    <Text style={styles.instructions}>2.- Al recibir el login se guarda los datos en Firestore</Text>
-                    <Text style={styles.instructions}>3.- Si estas logeado recibes una notifiación de que alguien inicio sesión</Text>
-                    {
-                        !this.state.isLoginScreenPresented ?
-                            <Button onPress={this.signIn.bind(this)} light><Text>Iniciar con Gmail </Text></Button>
-                        :
-                            <Button onPress={this.signOut.bind(this)} light><Text>Salir</Text></Button>
-                    }
-                    {
-                        this.state.dataSource.length > 0 &&
-                            <List
-                                dataArray={this.state.dataSource}
-                                renderRow={(item) => {
-                                    return(
-                                        <ListItem avatar>
-                                            <Left>
-                                                <Thumbnail small source={{ uri: item.photo }} />
-                                            </Left>
-                                            <Body>
-                                                <Text>{item.name}</Text>
-                                                <Text note>{item.email}</Text>
-                                            </Body>
-                                            <Right>
-                                                <Text note></Text>
-                                            </Right>
-                                        </ListItem>
-                                    )
-                                }}
-                                />
-                    }
-                </Content>
-            </Container>
-        );
+    onRegister(token) {
+        //console.log("Registered !", JSON.stringify(token));
+        console.log("Registered !", token);
+        this.setState({ registerToken: token.token, gcmRegistered: true });
+    }
+    onNotif(notif) {
+        console.log(notif);
+        const { foreground, userInteraction, message, data, ...rest } = notif;
+        Alert.alert(notif.title, notif.message);
+    }
+    handlePerm(perms) {
+        Alert.alert("Permissions", JSON.stringify(perms));
     }
 }
 
@@ -184,5 +214,29 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         color: '#333333',
         marginBottom: 5,
+    },
+    button: {
+        borderWidth: 1,
+        borderColor: "#000000",
+        margin: 5,
+        padding: 5,
+        width: "70%",
+        backgroundColor: "#DDDDDD",
+        borderRadius: 5,
+    },
+    textField: {
+        borderWidth: 1,
+        borderColor: "#AAAAAA",
+        margin: 5,
+        padding: 5,
+        width: "70%"
+      },
+      spacer: {
+        height: 10,
+      },
+      title: {
+        fontWeight: "bold",
+        fontSize: 20,
+        textAlign: "center",
     }
 });
