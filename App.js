@@ -24,7 +24,7 @@ export default class App extends Component{
             dataSource:[],
             registerToken: "", gcmRegistered: false
         }
-        this.notif = new NotifService(this.onRegister.bind(this), this.onNotif.bind(this));
+        
     }
     componentWillMount(){
         // Initialize Firebase
@@ -53,6 +53,8 @@ export default class App extends Component{
         const isSignedIn = await GoogleSignin.isSignedIn();        
         this.setState({ isLoginScreenPresented: isSignedIn });
         this.observerUsers()
+        //Configure Sender ID
+        this.notif = new NotifService(this.onRegister.bind(this), this.onNotif.bind(this));
     }
     render() {
         return (
@@ -108,6 +110,7 @@ export default class App extends Component{
         );
     }
     async signIn(){
+        console.log(this.state);
         try {
             await GoogleSignin.hasPlayServices();
             const response = await GoogleSignin.signIn();
@@ -128,7 +131,8 @@ export default class App extends Component{
                 givenName:userInfo.givenName,
                 id:dataUser.user.uid,
                 name:userInfo.name,
-                photo:userInfo.photo
+                photo:dataUser.user.photoURL,
+                token:this.state.registerToken
             })
             .then(function() {
                 console.log("Document successfully written!");
@@ -192,7 +196,6 @@ export default class App extends Component{
         Alert.alert("Permissions", JSON.stringify(perms));
     }
 }
-
 const styles = StyleSheet.create({
     welcome: {
         fontSize: 18,
